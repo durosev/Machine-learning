@@ -1,0 +1,107 @@
+---
+title: "Build a model to predict excercise modes"
+author: "Dunja Urosev"
+date: "26 March, 2016"
+output: html_document
+---
+
+##Executive Summary
+
+Using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants, goal of the study is to build a prediction function for the manner in which they performed particular excercise ("classe" variable in the data). There are 5 manners in which these particular excercises with dumbell were performed by the participants: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Utilizing random forest approach, appropriate when dealing with large number of relevant variables and non-linear models, predictive model with out of sample error of 0.23% was built(accuracy of 0.9977). Consequently this model allowed for correct prediction of 'classe' variable category for the 20 test cases in the test dataset.
+
+
+##Cleaning the data
+
+Data is available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv and 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv. The source of the data: http://groupware.les.inf.puc-rio.br/har.
+
+Download testing and training data and explore data
+```{r, echo=TRUE}
+test <- read.csv("/Users/dunjaurosev/Downloads/pml-testing.csv", header=T, na.strings=c("","NA"))
+train <- read.csv("/Users/dunjaurosev/Downloads/pml-training.csv", header=T, na.strings=c("","NA"))
+nrow(train)
+nrow(test)
+```
+
+Remove variables that have majority of data missing, >95% ('colSums(is.na(train))' is used to identify these varibales). Also, remove variables corresponding to columns 1:6, as these are not pertaining to the actual excercise measurements, but are various ID variables (e.g. timestamp..). 
+```{r, echo=TRUE}
+train_1 <- train[, colSums(is.na(train)) < nrow(train) * 0.95]
+test_1 <- test[, colSums(is.na(test)) < nrow(test) * 0.95]
+train_2 <- train_1[, 7:60]
+test_2 <- test_1[, 7:60]
+```
+
+##Build a prediction function using random forest approach
+
+For the purpose of better cross-validation, split training set into training and validation sets. 
+```{r, echo=TRUE}
+library(caret)
+set.seed(314)
+inTrain <- createDataPartition(y=train_2$classe, p=0.60, list=FALSE)
+train1  <- train_2[inTrain,]
+valid  <- train_2[-inTrain,]
+```
+
+For model building, random forest approach has been chosen as optimal due to large number of variables (53) and data being indicative of non-linear model. Furthermore, random forest approach has built in cross-valdation due to sample bootsraping for each tree. 
+
+###Model building
+
+Step 1: Explore different number of trees, until minimal and stable out of bag error is found.
+```{r, echo=TRUE}
+library(randomForest)
+set.seed(60)
+fitinitModel1<- randomForest(classe~., data=train1, ntree=100)
+print(fitinitModel1)
+set.seed(80)
+fitinitModel2 <- randomForest(classe~., data=train1, ntree=200)
+print(fitinitModel2)
+set.seed(85)
+fitinitModel3 <- randomForest(classe~., data=train1, ntree=300)
+print(fitinitModel3)
+```
+
+Step 2. From Step 1, number of trees, ntree=200 seems to be optimal. Next step is to identify the optimal number of variables used in each tree ('mtry'), which returns minimal out of bag error. 
+```{r, echo=TRUE}
+set.seed(120)
+mtry <- tuneRF(train1[-54],train1$classe, ntreeTry=200,
+               stepFactor=1.5,improve=0.01, trace=TRUE, plot=TRUE)      
+best.mtry <- mtry[mtry[, 2] == min(mtry[, 2]), 1]
+print(mtry)
+print(best.mtry)
+```
+
+Step 3. Build a final model using optimal 'ntree' and 'mtry' found in Steps 1 and 2. Based on the plot above, along with 'ntree' of 200, 'mtry' of 22  is optimal for minimal out of bag error. 
+```{r, echo=TRUE}
+set.seed(100)
+finalModel <-randomForest(classe~.,data=train1, mtry=best.mtry, importance=TRUE,ntree=200)
+print(finalModel)
+```
+Final model points to out of bag error or in other words out of sample error of 0.23%. 
+
+With random forest approach importance of variables can be found. As accuracy is very high without restricting to the most important set of variables, there was no need to perform such restriction. 
+
+##Make predictions of the excercise manner (A,B,C,D or E) in the validation and test data sets using the built random forest model
+
+Predict for the validation (valid) 
+```{r, echo=TRUE}
+pred_train1<-predict(finalModel)
+pred_valid<-predict(finalModel,valid)
+```
+
+and test data set (test_2)
+```{r, echo=TRUE}
+pred_test <-predict(finalModel,test_2)
+pred_test
+```
+
+Evaluate built model
+```{r, echo=TRUE}
+confusionMatrix(pred_train1, train1$classe)
+confusionMatrix(pred_valid, valid$classe)
+```
+
+##Conclusions
+
+Random forest approach yielded the model with high accuracy of excercise mode prediction (0.9977), or in other words small out of sample error: 0.23%. Such model allowed for correct prediction of 'classe' variable category for the 20 test cases in the test dataset.
